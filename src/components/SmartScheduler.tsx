@@ -85,7 +85,7 @@ const WELCOME_MESSAGE = (conversationId: string): Message => ({
   conversationId
 });
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+const genAI = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY! });
 
 export const SmartScheduler: React.FC<{ searchQuery?: string }> = ({ searchQuery = '' }) => {
   const [activeConversationId, setActiveConversationId] = useState<string>(Math.random().toString(36).substring(2, 15));
@@ -982,7 +982,7 @@ export const SmartScheduler: React.FC<{ searchQuery?: string }> = ({ searchQuery
 
     setIsLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY! });
       const model = "gemini-3-flash-preview";
       
       const prompt = `Reschedule my current plan. 

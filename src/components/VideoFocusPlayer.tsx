@@ -4,7 +4,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
 interface Video {
-  id: string;
+  id: {
+      videoId: string;
+      };
   title: string;
   thumbnail: string;
 }
@@ -27,14 +29,18 @@ export const VideoFocusPlayer: React.FC<VideoFocusPlayerProps> = ({ subject = ""
     setError(null);
     setHasSearched(true);
     try {
-      const response = await fetch(`/api/youtube-search?q=${encodeURIComponent(query)}`);
+      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
+
+const response = await fetch(
+  `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=3&q=${encodeURIComponent(query)}&key=${apiKey}`
+);
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to fetch videos');
       }
 
-      setVideos(data.videos);
+      setVideos(data.items || []);
     } catch (err) {
       console.error('Error fetching videos:', err);
       setError(err instanceof Error ? err.message : 'Failed to load video lectures');
@@ -124,11 +130,11 @@ export const VideoFocusPlayer: React.FC<VideoFocusPlayerProps> = ({ subject = ""
               animate={{ opacity: 1 }}
               className="space-y-4"
             >
-              {videos.length > 0 ? (
+              {(videos?.length || 0) > 0 ? (
                 <div className="flex flex-col gap-4">
                   {videos.map((video, index) => (
                     <motion.div
-                      key={video.id}
+                      key={(video.id as any).videoId}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.1 }}
@@ -137,8 +143,7 @@ export const VideoFocusPlayer: React.FC<VideoFocusPlayerProps> = ({ subject = ""
                       {/* Video Thumbnail/Iframe Container */}
                       <div className="w-full lg:w-[320px] aspect-video shrink-0 rounded-2xl overflow-hidden bg-slate-900 shadow-inner relative">
                         <iframe
-                          src={`https://www.youtube.com/embed/${video.id}`}
-                          title={video.title}
+                          src={`https://www.youtube.com/embed/${(video.id as any).videoId}`}                          title={video.title}
                           className="absolute inset-0 w-full h-full border-0"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                           allowFullScreen
