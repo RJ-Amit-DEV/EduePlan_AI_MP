@@ -1,4 +1,6 @@
+import { getDoc } from "firebase/firestore";
 import React, { useState, useEffect } from 'react';
+import { getAuth } from "firebase/auth";
 import { 
   Calendar, 
   Play, 
@@ -36,6 +38,7 @@ import { DEADLINES } from '../constants';
 import { cn } from '../lib/utils';
 import { db, auth } from '../firebase';
 import { collection, onSnapshot, query, orderBy, addDoc, updateDoc, doc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+
 
 enum OperationType {
   CREATE = 'create',
@@ -87,6 +90,25 @@ interface StudentDashboardProps {
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, notices, searchQuery = '' }) => {
   const [deadlines, setDeadlines] = useState<any[]>([]);
   const [showAddDeadline, setShowAddDeadline] = useState(false);
+  const auth = getAuth();
+  const user = auth.currentUser;
+  const [userName, setUserName] = useState("User");
+
+useEffect(() => {
+  if (!auth.currentUser) return;
+
+  const fetchUser = async () => {
+    const docRef = doc(db, "users", auth.currentUser!.uid);
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      setUserName(docSnap.data().name);
+    }
+  };
+
+  fetchUser();
+}, []);
+
   const [newDeadline, setNewDeadline] = useState({
     title: '',
     time: '',
@@ -179,7 +201,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
           className="max-w-2xl"
         >
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-display font-black text-slate-900 dark:text-white tracking-tight leading-tight">
-            Welcome back, <span className="text-indigo-600 dark:text-indigo-400">Amit!</span> <span className="animate-wave inline-block">👋</span>
+            Welcome back,<span className="text-indigo-600 dark:text-indigo-400">{userName}</span> <span className="animate-wave inline-block">👋</span>
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-3 sm:mt-4 text-base sm:text-lg font-medium leading-relaxed">
             Your AI tutor has prepared a personalized roadmap for today.

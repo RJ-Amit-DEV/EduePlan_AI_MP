@@ -57,6 +57,7 @@ interface FirestoreErrorInfo {
   }
 }
 
+
 const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
@@ -306,6 +307,16 @@ useEffect(() => {
       if (!loggedInUser) {
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth, provider);
+        const user = result.user;
+        const docRef = doc(db, "users", user.uid);
+        const docSnap = await getDoc(docRef);
+      if (!docSnap.exists()) {
+      await setDoc(docRef, {
+        uid: user.uid,
+        name: user.displayName || "User",
+        email: user.email,
+      });
+    }
         loggedInUser = result.user;
       }
       
