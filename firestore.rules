@@ -1,0 +1,208 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures:
+//
+// Collection: /users/{uid}
+// Document ID: Firebase Auth UID
+// Fields:
+//   - uid: string (required, immutable) - Firebase Auth UID
+//   - name: string (required) - Full name
+//   - email: string (required, email format) - Email address (PII)
+//   - role: string (required, enum: student, teacher, parent) - User role
+//   - avatar: string (optional) - URL to avatar
+//   - about: string (optional) - Bio
+//   - college: string (optional) - Institution
+//   - course: string (optional) - Course
+//   - semester: string (optional) - Semester
+//   - department: string (optional) - Department (Teacher)
+//   - designation: string (optional) - Designation (Teacher)
+//   - experience: string (optional) - Experience (Teacher)
+//   - childName: string (optional) - Child's name (Parent)
+//   - relationship: string (optional) - Relationship (Parent)
+//   - contact: string (optional) - Contact (Parent)
+//   - updatedAt: string (optional, date-time) - Last update
+//
+// Collection: /users/{uid}/deadlines/{deadlineId}
+// Document ID: Unique ID
+// Fields:
+//   - id: string (optional) - Deadline ID
+//   - title: string (required) - Title
+//   - date: string (required, YYYY-MM-DD) - Date
+//   - time: string (required, HH:MM) - Time
+//   - color: string (required) - Color
+//   - completed: bool (required) - Completion status
+//   - createdAt: string (optional, date-time) - Creation timestamp
+//
+// Collection: /users/{uid}/schedules/{scheduleId}
+// Collection: /users/{uid}/notes/{noteId}
+// Collection: /users/{uid}/scheduler_messages/{messageId}
+// Document ID: Unique ID
+// Fields: (Generic objects for AI-generated content and chat)
+//
+// Collection: /students/{studentId}
+// Document ID: Unique ID
+// Fields:
+//   - rollNo: string (required) - Roll number
+//   - name: string (required) - Full name
+//   - sem4: string (required) - Semester 4 pointer
+//   - ia1: number (required) - IA1 marks
+//   - ia2: number (required) - IA2 marks
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isSuperUser() {
+      return isAuthenticated() && 
+             request.auth.token.email == "amitjadhav4306@gmail.com";
+    }
+
+    function isAdmin() {
+      return isSuperUser() || (
+        isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isTeacher() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['student', 'teacher', 'parent', 'admin'] &&
+             (!('avatar' in data) || (data.avatar is string && data.avatar.size() < 1000)) &&
+             (!('about' in data) || (data.about is string && data.about.size() < 2000)) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp || isValidDateString(data.updatedAt));
+    }
+
+    function isValidDeadline(data) {
+      return data.keys().hasAll(['title', 'date', 'time', 'color', 'completed']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
+             data.time is string && data.time.matches("^\\d{2}:\\d{2}$") &&
+             data.color is string && data.color.size() < 50 &&
+             data.completed is bool;
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['rollNo', 'name', 'sem4', 'ia1', 'ia2']) &&
+             data.rollNo is string && data.rollNo.size() > 0 &&
+             data.name is string && data.name.size() > 0 &&
+             data.sem4 is string &&
+             data.ia1 is number && data.ia1 >= 0 && data.ia1 <= 20 &&
+             data.ia2 is number && data.ia2 >= 0 && data.ia2 <= 20;
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      // Users can only read their own profile, SuperUser can read all
+      allow read: if isOwner(userId) || isSuperUser() || isAdmin();
+      
+      // Create: User must be owner (or SuperUser), data must be valid for non-SuperUsers
+      allow create: if (isOwner(userId) || isSuperUser()) && 
+                      (isSuperUser() || (isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin())));
+      
+      // Update: User must be owner (or SuperUser), data must be valid for non-SuperUsers
+      allow update: if (isOwner(userId) || isSuperUser()) && 
+                      (isSuperUser() || (isValidUser(request.resource.data) && uidNotModified() && (request.resource.data.role == resource.data.role || isAdmin())));
+      
+      allow delete: if isOwner(userId) || isSuperUser() || isAdmin();
+
+      // Sub-collections
+      match /deadlines/{deadlineId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidDeadline(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /schedules/{scheduleId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update, delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /notes/{noteId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update, delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /scheduler_messages/{messageId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update, delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Students Collection
+    match /students/{studentId} {
+      // Teachers and Admins can do everything
+      allow read, write: if isAdmin() || isTeacher();
+    }
+
+    // Global Notice Board
+    match /notices/{noticeId} {
+      allow read: if isAuthenticated();
+      // Only teachers and admins can write to notices
+      allow write: if isAdmin() || isTeacher();
+    }
+
+    // Global Doubt Solver Messages
+    match /messages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      // Allow update/delete for owner or admin
+      allow update, delete: if isAuthenticated() && 
+                             (request.auth.uid == resource.data.uid || isAdmin());
+    }
+  }
+}

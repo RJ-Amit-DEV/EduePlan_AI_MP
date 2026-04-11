@@ -1,0 +1,5 @@
+{
+  "name": "AI Study Planner",
+  "description": "An intelligent AI-powered study scheduler that parses your syllabus, identifies chapters, and creates a customized, habit-based study plan tailored to your specific focus areas.",
+  "requestFramePermissions": []
+}
