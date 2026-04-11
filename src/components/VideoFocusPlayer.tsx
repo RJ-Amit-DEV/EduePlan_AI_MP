@@ -143,7 +143,8 @@ const response = await fetch(
                       {/* Video Thumbnail/Iframe Container */}
                       <div className="w-full lg:w-[320px] aspect-video shrink-0 rounded-2xl overflow-hidden bg-slate-900 shadow-inner relative">
                         <iframe
-                          src={`https://www.youtube.com/embed/${(video.id as any).videoId}`}                          title={video.title}
+                          src={`https://www.youtube.com/embed/${(video.id as any).videoId}`}                          
+                          title={video.title}
                           className="absolute inset-0 w-full h-full border-0"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                           allowFullScreen
@@ -154,10 +155,10 @@ const response = await fetch(
                       <div className="flex-1 flex flex-col justify-center py-2">
                         <div className="flex items-start justify-between gap-4 mb-3">
                           <h4 className="text-lg font-bold text-slate-900 leading-tight group-hover:text-rose-600 transition-colors line-clamp-2">
-                            {video.title}
+                            {(video as any).snippet?.title}
                           </h4>
                           <a 
-                            href={`https://www.youtube.com/watch?v=${video.id}`} 
+                            href={`https://www.youtube.com/watch?v=${(video.id as any).videoId}`}
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all shrink-0"
