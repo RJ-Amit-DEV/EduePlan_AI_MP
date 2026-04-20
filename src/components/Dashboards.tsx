@@ -378,22 +378,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherName 
                         )}
                       </td>
                       <td className="px-10 py-6">
-                        {editingId === student.id ? (
-                          <input 
-                            type="number" 
-                            value={editStudent.quizPass}
-                            onChange={(e) => setEditStudent({ ...editStudent, quizPass: parseInt(e.target.value) || 0 })}
-                            className="w-20 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none focus:border-indigo-600"
-                            min="0"
-                            max="100"
-                          />
-                        ) : (
-                          <div className="flex items-center gap-2">
-                             <span className={cn(
-                                "text-sm font-black text-slate-600"
-                             )}>{student.quizPass || 0}%</span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-2">
+                           <span className={cn(
+                              "text-sm font-black text-slate-600"
+                           )}>{student.quizPass || 0}%</span>
+                        </div>
                       </td>
                       <td className="px-10 py-6">
                         {editingId === student.id ? (
@@ -618,7 +607,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherName 
             </div>
           </section>
 
-          <section className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl shadow-slate-900/20">
+          {/* <section className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl shadow-slate-900/20">
             <h3 className="text-2xl font-display font-black mb-8 flex items-center gap-4">
               <TrendingUp className="text-indigo-400" size={28} />
               AI Insights
@@ -638,7 +627,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherName 
             <button className="w-full mt-8 py-4 bg-indigo-600 text-white font-display font-black rounded-2xl hover:bg-indigo-700 transition-all">
               GENERATE AI REPORT
             </button>
-          </section>
+          </section> */}
         </div>
       </div>
     </div>
