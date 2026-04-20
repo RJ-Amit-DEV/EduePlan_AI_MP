@@ -607,7 +607,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherName 
             </div>
           </section>
 
-          <section className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl shadow-slate-900/20">
+          {/* <section className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl shadow-slate-900/20">
             <h3 className="text-2xl font-display font-black mb-8 flex items-center gap-4">
               <TrendingUp className="text-indigo-400" size={28} />
               AI Insights
@@ -627,7 +627,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherName 
             <button className="w-full mt-8 py-4 bg-indigo-600 text-white font-display font-black rounded-2xl hover:bg-indigo-700 transition-all">
               GENERATE AI REPORT
             </button>
-          </section>
+          </section> */}
         </div>
       </div>
     </div>
