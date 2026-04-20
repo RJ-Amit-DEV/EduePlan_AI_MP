@@ -427,7 +427,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
           </section>
 
           {/* Smart Scheduler Preview - Simplified */}
-          <section>
+          {/* <section>
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-display font-bold text-slate-900 dark:text-white flex items-center gap-3">
                 <Calendar className="text-indigo-600" size={24} />
@@ -476,7 +476,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
                 </div>
               </motion.div>
             </div>
-          </section>
+          </section> */}
 
           {/* Study Tools Grid */}
           <section>
@@ -485,8 +485,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
               {[
                 { title: 'AI Scheduler', icon: Calendar, id: 'scheduler', color: 'bg-amber-500', shadow: 'shadow-amber-100', desc: 'Study plans' },
                 { title: 'Video Focus', icon: Video, color: 'bg-blue-500', shadow: 'shadow-blue-100', id: 'video', desc: 'Learning' },
-                { title: 'Interactive Quiz', icon: BrainCircuit, id: 'quiz', color: 'bg-indigo-600', shadow: 'shadow-indigo-100', desc: 'Test' },
-                { title: 'Smart AI Notes', icon: FileText, id: 'notes', color: 'bg-emerald-500', shadow: 'shadow-emerald-100', desc: 'Insights' },
+                // { title: 'Interactive Quiz', icon: BrainCircuit, id: 'quiz', color: 'bg-indigo-600', shadow: 'shadow-indigo-100', desc: 'Test' },
+                // { title: 'Smart AI Notes', icon: FileText, id: 'notes', color: 'bg-emerald-500', shadow: 'shadow-emerald-100', desc: 'Insights' },
               ].map((tool) => (
                 <button
                   key={tool.id}
@@ -511,7 +511,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
         {/* Sidebar Area */}
         <div className="xl:col-span-4 space-y-10">
           {/* Goals Card */}
-          <section className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl shadow-slate-900/20 relative overflow-hidden group">
+          {/* <section className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl shadow-slate-900/20 relative overflow-hidden group">
             <div className="absolute -bottom-10 -right-10 opacity-10 group-hover:scale-110 transition-transform duration-700">
               <Target size={240} />
             </div>
@@ -543,7 +543,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
                 CONTINUE LEARNING
               </button>
             </div>
-          </section>
+          </section> */}
 
           {/* Removed Subject Mastery as per request */}
 
