@@ -69,6 +69,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
   const [deadlines, setDeadlines] = useState<any[]>([]);
   const [performanceData, setPerformanceData] = useState<any[]>([]);
   const [showAddDeadline, setShowAddDeadline] = useState(false);
+  const [showAddQuiz, setShowAddQuiz] = useState(false);
+  const [newQuiz, setNewQuiz] = useState({
+    subject: '',
+    score: 0,
+    total: 20
+  });
   const [newDeadline, setNewDeadline] = useState({
     title: '',
     time: '',
@@ -98,21 +104,25 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
       handleFirestoreError(error, OperationType.LIST, deadlinesPath);
     });
 
-    // Fetch Data for Academic Growth
-    const fetchGrowthData = () => {
+    // Fetch Quiz Results
+    const quizPath = `users/${auth.currentUser.uid}/quiz_results`;
+    const qQuizzes = query(collection(db, quizPath), orderBy('date', 'asc'));
+
+    const unsubscribeQuizzes = onSnapshot(qQuizzes, (snapshot) => {
+      const results = snapshot.docs.map(doc => doc.data());
+      
       // Calculate factors for Academic Growth
       // Attendance: 0-100 -> weight 0.2
       // Pointer (SGPI): 0-10 (sem4) -> weight 0.3 (scaled to 100)
       // IA Marks: (ia1 + ia2) / 40 -> weight 0.3 (scaled to 100)
-      // Quiz Performance: teacher recorded quizPass -> weight 0.2
+      // Quiz Performance: avg score -> weight 0.2
 
       const attendanceScore = academicRecord?.attendance || 0;
       const pointerScore = academicRecord?.sem4 ? parseFloat(academicRecord.sem4) * 10 : 0;
       const iaScore = academicRecord ? ((academicRecord.ia1 + academicRecord.ia2) / 40) * 100 : 0;
-      const quizPassScore = academicRecord?.quizPass || 0;
       
-      // If no official data exists, generate a "downward trend" baseline
-      if (!academicRecord) {
+      // If no data exists, generate a "downward trend" baseline
+      if (!academicRecord && results.length === 0) {
         const baseline = [
           { name: 'Week 1', score: 45 },
           { name: 'Week 2', score: 38 },
@@ -124,16 +134,22 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
         return;
       }
 
-      // Generate trend data across core subjects
-      const subjects = ['Maths', 'CN', 'OS', 'SE', 'DS'];
+      // Generate trend data based on subject performance
+      const dataSubjects = Array.from(new Set(results.map(r => r.subject))).filter(Boolean);
+      const subjects = dataSubjects.length > 0 ? (dataSubjects as string[]) : ['Maths', 'CN', 'OS', 'SE', 'DS'];
       
       const chartData = subjects.map((sub, idx) => {
+        const subQuizzes = results.filter(r => r.subject === sub);
+        const quizAvg = subQuizzes.length > 0 
+          ? subQuizzes.reduce((acc, r) => acc + (r.score / r.total) * 100, 0) / subQuizzes.length 
+          : 0;
+
         // Weighted Average Calculation
         const totalWeightedScore = (
           (attendanceScore * 0.2) + 
           (pointerScore * 0.3) + 
           (iaScore * 0.3) + 
-          (quizPassScore * 0.2)
+          (quizAvg * 0.2)
         );
 
         // Add some variation per subject for visual clarity
@@ -143,7 +159,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
         return {
           name: sub,
           score: finalScore,
-          quiz: quizPassScore,
+          quiz: Math.round(quizAvg),
           ia: Math.round(iaScore),
           attendance: attendanceScore,
           pointer: pointerScore / 10
@@ -151,14 +167,37 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
       });
 
       setPerformanceData(chartData);
-    };
-
-    fetchGrowthData();
+      
+    }, (error) => {
+      console.error("Error fetching quizzes:", error);
+    });
 
     return () => {
       unsubscribeDeadlines();
+      unsubscribeQuizzes();
     };
-  }, [auth.currentUser, academicRecord]);
+  }, [auth.currentUser]);
+
+  const handleAddQuiz = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newQuiz.subject || !auth.currentUser) return;
+
+    const path = `users/${auth.currentUser.uid}/quiz_results`;
+    try {
+      await addDoc(collection(db, path), {
+        subject: newQuiz.subject,
+        score: Number(newQuiz.score),
+        total: Number(newQuiz.total),
+        date: new Date().toISOString(),
+        type: 'quiz',
+        createdAt: serverTimestamp()
+      });
+      setShowAddQuiz(false);
+      setNewQuiz({ subject: '', score: 0, total: 20 });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  };
 
   const handleAddDeadline = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -271,9 +310,67 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-10 relative z-10">
               <div>
                 <h3 className="text-xl sm:text-2xl font-display font-bold sm:font-black text-slate-900 dark:text-white tracking-tight">Academic Growth</h3>
-                <p className="text-xs sm:text-sm text-slate-400 font-medium mt-1">Calculated from Attendance, Sem Pointer, IA Marks, and Official Quizzes</p>
+                <p className="text-xs sm:text-sm text-slate-400 font-medium mt-1">Growth based on subject and quiz clearance</p>
               </div>
+              <button 
+                onClick={() => setShowAddQuiz(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-xl border border-indigo-100 dark:border-indigo-900/30 hover:bg-indigo-100 transition-all"
+              >
+                <Plus size={14} />
+                ADD PERFORMANCE
+              </button>
             </div>
+
+            {showAddQuiz && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mb-8 p-6 bg-slate-50 dark:bg-slate-950 rounded-[32px] border-2 border-indigo-100 dark:border-slate-800"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="font-bold text-slate-900 dark:text-white">Record Quiz Clearance</h4>
+                  <button onClick={() => setShowAddQuiz(false)} className="text-slate-400 hover:text-slate-600">
+                    <X size={20} />
+                  </button>
+                </div>
+                <form onSubmit={handleAddQuiz} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Subject</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Maths, CN" 
+                      value={newQuiz.subject}
+                      onChange={e => setNewQuiz({...newQuiz, subject: e.target.value})}
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:border-indigo-500 dark:text-white"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Score</label>
+                    <input 
+                      type="number" 
+                      value={newQuiz.score}
+                      onChange={e => setNewQuiz({...newQuiz, score: parseInt(e.target.value) || 0})}
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:border-indigo-500 dark:text-white"
+                      min="0"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Total</label>
+                    <input 
+                      type="number" 
+                      value={newQuiz.total}
+                      onChange={e => setNewQuiz({...newQuiz, total: parseInt(e.target.value) || 20})}
+                      className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:border-indigo-500 dark:text-white"
+                      min="1"
+                    />
+                  </div>
+                  <button type="submit" className="h-[52px] bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg active:scale-95">
+                    Record Score
+                  </button>
+                </form>
+              </motion.div>
+            )}
             
             <div className="h-[350px] w-full relative">
               {performanceData.some(d => d.score > 0) ? (
