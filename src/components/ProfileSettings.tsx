@@ -145,6 +145,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ profile, onUpd
             {formData.role === 'student' && (
               <>
                 <div className="space-y-2">
+                  
                   <label className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1">Course / Branch</label>
                   <div className="relative">
                     <GraduationCap className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -215,7 +216,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ profile, onUpd
             {formData.role === 'parent' && (
               <>
                 <div className="space-y-2">
+                  <div className="flex items-center justify-between">
                   <label className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1">Child's Name</label>
+                    <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Required for live results</span>
+                  </div>
                   <div className="relative">
                     <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
@@ -223,8 +227,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ profile, onUpd
                       value={formData.childName || ''}
                       onChange={e => setFormData(prev => ({ ...prev, childName: e.target.value }))}
                       className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
+                      placeholder="Enter child's full name exactly"
                     />
                   </div>
+                  <p className="text-[10px] text-slate-400 ml-2 font-medium">Link by child's name to see their live performance and teacher's marks.</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1">Relationship</label>

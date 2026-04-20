@@ -18,10 +18,10 @@ import {
   Save,
   BookOpen,
   Loader2,
-  CheckCircle
+  CheckCircle,
+  History
 } from 'lucide-react';
-import { motion } from 'motion/react';
-
+import { motion } from 'framer-motion';
 import { 
   LineChart, 
   Line, 
@@ -40,8 +40,10 @@ import { STUDENT_PERFORMANCE } from '../constants';
 import { cn } from '../lib/utils';
 import * as XLSX from 'xlsx';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, query, orderBy, updateDoc, doc, setDoc, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
-import {writeBatch, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, updateDoc, doc, setDoc, getDocs, addDoc, serverTimestamp, writeBatch, limit } from 'firebase/firestore';
+
+import { Notice } from './NoticeBoard';
+
 interface Student {
   id: string;
   rollNo: string;
@@ -49,30 +51,33 @@ interface Student {
   sem4: string;
   ia1: number;
   ia2: number;
+  attendance: number;
+  quizPass: number;
 }
 
 const generateInitialStudents = () => {
   const students = [];
   const names = [
-    // "Aarav", "Aditi", "Advait", "Akash", "Ananya", "Arjun", "Avni", "Bhavya", "Chaitanya", "Deepak",
-    // "Esha", "Gaurav", "Ishani", "Kabir", "Kavya", "Manish", "Meera", "Nikhil", "Pooja", "Pranav",
-    // "Riya", "Rohan", "Saanvi", "Sameer", "Shreya", "Tushar", "Vanya", "Varun", "Vihaan", "Zoya"
+    "Aarav", "Aditi", "Advait", "Akash", "Ananya", "Arjun", "Avni", "Bhavya", "Chaitanya", "Deepak",
+    "Esha", "Gaurav", "Ishani", "Kabir", "Kavya", "Manish", "Meera", "Nikhil", "Pooja", "Pranav",
+    "Riya", "Rohan", "Saanvi", "Sameer", "Shreya", "Tushar", "Vanya", "Varun", "Vihaan", "Zoya"
   ];
-  const lastNames = [//"Sharma", "Verma", "Gupta", "Malhotra", "Joshi", "Patil", "Deshmukh", "Kulkarni", "Iyer", "Nair"
-  ];
+  const lastNames = ["Sharma", "Verma", "Gupta", "Malhotra", "Joshi", "Patil", "Deshmukh", "Kulkarni", "Iyer", "Nair"];
 
-  // for (let i = 1; i <= 120; i++) {
-  //   const firstName = names[Math.floor(Math.random() * names.length)];
-  //   const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
-  //   students.push({
-  //     rollNo: `INFTT-1-${i.toString().padStart(3, '0')}`,
-  //     name: `${firstName} ${lastName}`,
-  //     sem4: (Math.random() * (10 - 6) + 6).toFixed(2),
-  //     ia1: Math.floor(Math.random() * 21),
-  //     ia2: Math.floor(Math.random() * 21)
-  //   });
-  // }
-  // return students;
+  for (let i = 1; i <= 120; i++) {
+    const firstName = names[Math.floor(Math.random() * names.length)];
+    const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+      students.push({
+        rollNo: `INFTT-1-${i.toString().padStart(3, '0')}`,
+        name: `${firstName} ${lastName}`,
+        sem4: (Math.random() * (10 - 6) + 6).toFixed(2),
+        ia1: Math.floor(Math.random() * 21),
+        ia2: Math.floor(Math.random() * 21),
+        attendance: Math.floor(Math.random() * 41) + 60, // 60-100%
+        quizPass: Math.floor(Math.random() * 31) + 70   // 70-100%
+      });
+  }
+  return students;
 };
 
 const classEngagementData = [
@@ -102,11 +107,17 @@ const gradeDistribution = [
   { name: 'D', value: 5, color: '#F43F5E' },
 ];
 
-export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQuery = '' }) => {
+interface TeacherDashboardProps {
+  teacherName?: string;
+  searchQuery?: string;
+  notices?: Notice[];
+}
+
+export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacherName = 'Prof. Amit Jadhav', searchQuery = '', notices = [] }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editMarks, setEditMarks] = useState({ ia1: 0, ia2: 0 });
+  const [editStudent, setEditStudent] = useState({ name: '', rollNo: '', sem4: '', ia1: 0, ia2: 0, attendance: 0, quizPass: 0 });
 
   // Sync internal searchTerm with global searchQuery
   useEffect(() => {
@@ -116,19 +127,45 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
   }, [searchQuery]);
 
   useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const seedData = async () => {
+      const hasSeeded = localStorage.getItem('students_seeded');
+      if (hasSeeded) return;
+
+      try {
+        const snapshot = await getDocs(query(collection(db, 'students'), limit(1)));
+        if (snapshot.empty) {
+          localStorage.setItem('students_seeded', 'true');
+          const initialData = generateInitialStudents();
+          const batch = writeBatch(db);
+          initialData.forEach((s) => {
+            const newDocRef = doc(collection(db, 'students'));
+            batch.set(newDocRef, s);
+          });
+          await batch.commit();
+        } else {
+          localStorage.setItem('students_seeded', 'true');
+        }
+      } catch (err) {
+        console.error("Error seeding students:", err);
+      }
+    };
+
+    seedData();
+
     const q = query(collection(db, 'students'), orderBy('rollNo', 'asc'));
-    
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Simply read whatever is in the database, even if it's empty
       const studentData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Student[];
-      
       setStudents(studentData);
-      
     }, (error) => {
       console.error("Firestore Error (students):", error);
+      if (error.code === 'permission-denied') {
+        setStudents([]);
+      }
     });
 
     return () => unsubscribe();
@@ -139,15 +176,20 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
     s.rollNo.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleUpdateMarks = async (id: string) => {
+  const handleUpdateStudent = async (id: string) => {
     try {
       await updateDoc(doc(db, 'students', id), {
-        ia1: editMarks.ia1,
-        ia2: editMarks.ia2
+        name: editStudent.name,
+        rollNo: editStudent.rollNo,
+        sem4: editStudent.sem4,
+        ia1: editStudent.ia1,
+        ia2: editStudent.ia2,
+        attendance: editStudent.attendance,
+        quizPass: editStudent.quizPass
       });
       setEditingId(null);
     } catch (error) {
-      console.error("Error updating marks:", error);
+      console.error("Error updating student record:", error);
     }
   };
 
@@ -160,6 +202,8 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
 
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeContent, setNoticeContent] = useState('');
+  const [targetAudience, setTargetAudience] = useState<'all' | 'students' | 'parents' | 'specific'>('all');
+  const [targetRollNo, setTargetRollNo] = useState('');
   const [isPosting, setIsPosting] = useState(false);
   const [postSuccess, setPostSuccess] = useState(false);
 
@@ -171,12 +215,15 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
         title: noticeTitle,
         content: noticeContent,
         date: serverTimestamp(),
-        author: 'Prof. Amit Jadhav',
+        author: teacherName,
         type: 'Academic',
-        attachments: []
+        attachments: [],
+        targetAudience,
+        targetRollNo: targetAudience === 'specific' ? targetRollNo : null
       });
       setNoticeTitle('');
       setNoticeContent('');
+      setTargetRollNo('');
       setPostSuccess(true);
       setTimeout(() => setPostSuccess(false), 3000);
     } catch (error) {
@@ -196,7 +243,7 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
           </div>
           <div>
             <h2 className="text-4xl font-display font-black text-slate-900 tracking-tight">My Class: INFTT-1</h2>
-            <p className="text-slate-500 font-medium text-lg mt-1">Class Teacher: Prof. Amit Jadhav • 120 Students Enrolled</p>
+            <p className="text-slate-500 font-medium text-lg mt-1">Class Teacher: {teacherName} • 120 Students Enrolled</p>
           </div>
         </div>
         
@@ -263,45 +310,86 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
                   <tr className="bg-slate-50/50">
                     <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Roll No</th>
                     <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Full Name</th>
-                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Sem 4 Pointer</th>
-                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">IA1 Marks (20)</th>
-                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">IA2 Marks (20)</th>
+                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Sem 4</th>
+                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Attendance (%)</th>
+                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Quiz Pass (%)</th>
+                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">IA1 (20)</th>
+                    <th className="px-10 py-8 text-xs font-black text-slate-400 uppercase tracking-[0.2em]">IA2 (20)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredStudents.map((student) => (
-                    <tr key={student.rollNo} className="hover:bg-slate-50/50 transition-colors group">
+                    <tr key={student.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-10 py-6">
-                        <span className="text-sm font-black text-indigo-600 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">
-                          {student.rollNo}
-                        </span>
+                        {editingId === student.id ? (
+                          <input 
+                            type="text" 
+                            value={editStudent.rollNo}
+                            onChange={(e) => setEditStudent({ ...editStudent, rollNo: e.target.value })}
+                            className="w-32 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none focus:border-indigo-600"
+                          />
+                        ) : (
+                          <span className="text-sm font-black text-indigo-600 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">
+                            {student.rollNo}
+                          </span>
+                        )}
                       </td>
                       <td className="px-10 py-6">
-                        <p className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{student.name}</p>
+                        {editingId === student.id ? (
+                          <input 
+                            type="text" 
+                            value={editStudent.name}
+                            onChange={(e) => setEditStudent({ ...editStudent, name: e.target.value })}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none focus:border-indigo-600"
+                          />
+                        ) : (
+                          <p className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{student.name}</p>
+                        )}
                       </td>
                       <td className="px-10 py-6">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center border border-slate-100">
-                            <span className="text-base font-black text-slate-900">{student.sem4}</span>
+                        {editingId === student.id ? (
+                          <input 
+                            type="text" 
+                            value={editStudent.sem4}
+                            onChange={(e) => setEditStudent({ ...editStudent, sem4: e.target.value })}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none focus:border-indigo-600"
+                          />
+                        ) : (
+                          <span className="text-sm font-bold text-slate-700">{student.sem4}</span>
+                        )}
+                      </td>
+                      <td className="px-10 py-6">
+                        {editingId === student.id ? (
+                          <input 
+                            type="number" 
+                            value={editStudent.attendance}
+                            onChange={(e) => setEditStudent({ ...editStudent, attendance: parseInt(e.target.value) || 0 })}
+                            className="w-20 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none focus:border-indigo-600"
+                            min="0"
+                            max="100"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2">
+                             <span className={cn(
+                                "text-sm font-black",
+                                student.attendance >= 75 ? "text-emerald-600" : "text-rose-600"
+                             )}>{student.attendance}%</span>
                           </div>
-                          <div className="flex-1 max-w-[100px] h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className={cn(
-                                "h-full rounded-full transition-all duration-1000",
-                                parseFloat(student.sem4) >= 9 ? "bg-emerald-500" :
-                                parseFloat(student.sem4) >= 7.5 ? "bg-indigo-500" : "bg-amber-500"
-                              )} 
-                              style={{ width: `${(parseFloat(student.sem4) / 10) * 100}%` }}
-                            ></div>
-                          </div>
+                        )}
+                      </td>
+                      <td className="px-10 py-6">
+                        <div className="flex items-center gap-2">
+                           <span className={cn(
+                              "text-sm font-black text-slate-600"
+                           )}>{student.quizPass || 0}%</span>
                         </div>
                       </td>
                       <td className="px-10 py-6">
                         {editingId === student.id ? (
                           <input 
                             type="number" 
-                            value={editMarks.ia1}
-                            onChange={(e) => setEditMarks({ ...editMarks, ia1: parseInt(e.target.value) || 0 })}
+                            value={editStudent.ia1}
+                            onChange={(e) => setEditStudent({ ...editStudent, ia1: parseInt(e.target.value) || 0 })}
                             className="w-20 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none focus:border-indigo-600"
                             min="0"
                             max="20"
@@ -321,14 +409,14 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
                             <>
                               <input 
                                 type="number" 
-                                value={editMarks.ia2}
-                                onChange={(e) => setEditMarks({ ...editMarks, ia2: parseInt(e.target.value) || 0 })}
+                                value={editStudent.ia2}
+                                onChange={(e) => setEditStudent({ ...editStudent, ia2: parseInt(e.target.value) || 0 })}
                                 className="w-20 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none focus:border-indigo-600"
                                 min="0"
                                 max="20"
                               />
                               <button 
-                                onClick={() => handleUpdateMarks(student.id)}
+                                onClick={() => handleUpdateStudent(student.id)}
                                 className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all"
                               >
                                 <Save size={18} />
@@ -345,7 +433,15 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
                               <button 
                                 onClick={() => {
                                   setEditingId(student.id);
-                                  setEditMarks({ ia1: student.ia1, ia2: student.ia2 });
+                                  setEditStudent({ 
+                                    name: student.name, 
+                                    rollNo: student.rollNo, 
+                                    sem4: student.sem4, 
+                                    ia1: student.ia1, 
+                                    ia2: student.ia2,
+                                    attendance: student.attendance || 0,
+                                    quizPass: student.quizPass || 0
+                                  });
                                 }}
                                 className="p-2 text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all"
                               >
@@ -373,10 +469,10 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
 
         {/* Right Column: Charts and Insights */}
         <div className="lg:col-span-4 space-y-10">
-          <section className="bg-white rounded-[48px] border border-slate-200 p-10 shadow-sm">
+          <section className="bg-white rounded-[48px] border border-slate-200 p-10 shadow-sm min-h-[450px]">
             <h3 className="text-2xl font-display font-black text-slate-900 mb-8 tracking-tight">Grade Distribution</h3>
-           <div className="h-[300px] w-full min-h-[300px] relative">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={300}>
+            <div className="h-[300px] w-full relative">
+              <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
                     data={[
@@ -430,6 +526,32 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
                 placeholder="Notice Title..." 
                 className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-100 transition-all"
               />
+              
+              <div className="grid grid-cols-1 gap-4">
+                <select 
+                  value={targetAudience}
+                  onChange={(e) => setTargetAudience(e.target.value as any)}
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:border-indigo-100 transition-all appearance-none cursor-pointer"
+                >
+                  <option value="all">Everyone</option>
+                  <option value="students">Students Only</option>
+                  <option value="parents">All Parents</option>
+                  <option value="specific">Specific Parent (Roll No)</option>
+                </select>
+
+                {targetAudience === 'specific' && (
+                  <motion.input 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    type="text" 
+                    value={targetRollNo}
+                    onChange={(e) => setTargetRollNo(e.target.value)}
+                    placeholder="Enter Roll No..."
+                    className="w-full px-6 py-4 bg-slate-50 border-2 border-indigo-100 rounded-2xl font-bold text-indigo-600 outline-none transition-all"
+                  />
+                )}
+              </div>
+
               <textarea 
                 value={noticeContent}
                 onChange={(e) => setNoticeContent(e.target.value)}
@@ -459,9 +581,33 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
                 )}
               </button>
             </div>
+
+            {/* Recent Broadcasts History */}
+            <div className="mt-10 pt-10 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">Recent Broadcasts</h4>
+                <History size={16} className="text-slate-300" />
+              </div>
+              <div className="space-y-4">
+                {notices.slice(0, 3).map((notice) => (
+                  <div key={notice.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all group">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-black text-slate-900 truncate pr-4">{notice.title}</p>
+                      <span className="text-[9px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full uppercase tracking-tighter">
+                        {notice.targetAudience === 'specific' ? `Roll ${notice.targetRollNo}` : notice.targetAudience || 'All'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] font-medium text-slate-500 line-clamp-1">{notice.content}</p>
+                  </div>
+                ))}
+                {notices.length === 0 && (
+                  <p className="text-[10px] font-bold text-slate-400 text-center py-4 italic">No recent broadcasts found.</p>
+                )}
+              </div>
+            </div>
           </section>
 
-          {/* <section className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl shadow-slate-900/20">
+          <section className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl shadow-slate-900/20">
             <h3 className="text-2xl font-display font-black mb-8 flex items-center gap-4">
               <TrendingUp className="text-indigo-400" size={28} />
               AI Insights
@@ -481,7 +627,7 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
             <button className="w-full mt-8 py-4 bg-indigo-600 text-white font-display font-black rounded-2xl hover:bg-indigo-700 transition-all">
               GENERATE AI REPORT
             </button>
-          </section> */}
+          </section>
         </div>
       </div>
     </div>
@@ -490,20 +636,44 @@ export const TeacherDashboard: React.FC<{ searchQuery?: string }> = ({ searchQue
 
 import { ConsistencyData } from '../types';
 
-export const ParentDashboard: React.FC<{ consistency: ConsistencyData, activeTab?: string, searchQuery?: string }> = ({ consistency, activeTab = 'performance', searchQuery = '' }) => {
-  const [childData] = useState({
-    name: "Amit Jadhav",
-    rollNo: "INFTT-1-043",
-    batch: "INFTT-1",
-    college: "Institute of Engineering & Technology",
-    course: "B.E. Information Technology",
-    semester: "4th Semester",
-    marks: {
-      ia1: 18,
-      ia2: 17,
-      sem4: 8.92
-    }
-  });
+export const ParentDashboard: React.FC<{ 
+  childData: any,
+  activeTab?: string, 
+  searchQuery?: string 
+}> = ({ childData, activeTab = 'performance', searchQuery = '' }) => {
+  if (!childData) {
+    return (
+      <div className="p-10 flex flex-col items-center justify-center min-h-[60vh] text-center">
+        <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mb-6">
+          <Loader2 className="animate-spin text-indigo-600" size={40} />
+        </div>
+        <h2 className="text-2xl font-display font-black text-slate-900 dark:text-white mb-2">Syncing Child Data...</h2>
+        <p className="text-slate-500 dark:text-slate-400 max-w-sm">
+          Please ensure your child's name in your profile matches their name in the college records.
+        </p>
+      </div>
+    );
+  }
+
+  const displayChild = childData;
+  
+  // Safe access to marks
+  const ia1 = displayChild.ia1 ?? 0;
+  const ia2 = displayChild.ia2 ?? 0;
+  const sem4 = displayChild.sem4 ?? 0;
+  const attendanceVal = displayChild.attendance ?? 0;
+  const quizPassVal = displayChild.quizPass ?? 0;
+
+  // Consistency Score Calculation: Avg of Attendance, Quiz Pass, and IA Performance
+  // IA Performance is (ia1+ia2)/40 * 100
+  const iaPercent = Math.min(((ia1 + ia2) / 40) * 100, 100);
+  const consistencyScore = Math.round((attendanceVal + quizPassVal + iaPercent) / 3) || 0;
+
+  const consistency = {
+    score: consistencyScore,
+    attendance: attendanceVal,
+    quizPassRate: quizPassVal
+  };
 
   const blogs = [
     {
@@ -547,21 +717,21 @@ export const ParentDashboard: React.FC<{ consistency: ConsistencyData, activeTab
             <div className="space-y-6">
               <div>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">College Name</p>
-                <p className="text-xl font-bold text-slate-900">{childData.college}</p>
+                <p className="text-xl font-bold text-slate-900">{displayChild.college}</p>
               </div>
               <div>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Current Course</p>
-                <p className="text-xl font-bold text-slate-900">{childData.course}</p>
+                <p className="text-xl font-bold text-slate-900">{displayChild.course}</p>
               </div>
             </div>
             <div className="space-y-6">
               <div>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Batch / Division</p>
-                <p className="text-xl font-bold text-slate-900">{childData.batch}</p>
+                <p className="text-xl font-bold text-slate-900">{displayChild.batch}</p>
               </div>
               <div>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Current Semester</p>
-                <p className="text-xl font-bold text-slate-900">{childData.semester}</p>
+                <p className="text-xl font-bold text-slate-900">{displayChild.semester}</p>
               </div>
             </div>
           </div>
@@ -653,15 +823,20 @@ export const ParentDashboard: React.FC<{ consistency: ConsistencyData, activeTab
     );
   }
 
+  const childFirstName = displayChild?.name && displayChild?.name !== "No child linked" 
+    ? displayChild.name.split(' ')[0] 
+    : "Your child";
+
   return (
     <div className="p-10 space-y-10 max-w-[1200px] mx-auto">
       {/* Performance Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         {/* Consistency Ring */}
-        <div className="bg-white dark:bg-slate-900 rounded-[48px] border border-slate-200 dark:border-slate-800 p-10 shadow-sm flex flex-col items-center justify-center text-center">
-          <h3 className="text-2xl font-display font-black text-slate-900 dark:text-white mb-8 tracking-tight">Consistency Score</h3>
-<div className="relative w-64 h-64 min-h-[256px]">
-  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <div className="bg-white dark:bg-slate-900 rounded-[56px] border border-slate-100 dark:border-slate-800 p-12 shadow-2xl shadow-indigo-500/5 flex flex-col items-center justify-center text-center min-h-[550px]">
+          <h3 className="text-3xl font-display font-black text-slate-900 dark:text-white mb-10 tracking-tight">Consistency Score</h3>
+          
+          <div className="relative w-72 h-72 mb-10">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={[
@@ -670,11 +845,12 @@ export const ParentDashboard: React.FC<{ consistency: ConsistencyData, activeTab
                   ]}
                   cx="50%"
                   cy="50%"
-                  innerRadius={80}
-                  outerRadius={110}
+                  innerRadius={90}
+                  outerRadius={120}
                   startAngle={90}
                   endAngle={450}
                   dataKey="value"
+                  stroke="none"
                 >
                   <Cell fill="#4F46E5" />
                   <Cell fill="#F1F5F9" className="dark:fill-slate-800" />
@@ -682,29 +858,31 @@ export const ParentDashboard: React.FC<{ consistency: ConsistencyData, activeTab
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-5xl font-black text-slate-900 dark:text-white">{consistency.score}%</span>
+              <span className="text-6xl font-black text-slate-900 dark:text-white tracking-tighter">{consistency.score}%</span>
               <span className={cn(
-                "text-xs font-bold uppercase tracking-widest mt-1",
+                "text-[10px] font-black uppercase tracking-[0.2em] mt-2",
                 consistency.score >= 80 ? "text-emerald-600" : consistency.score >= 60 ? "text-amber-600" : "text-rose-600"
               )}>
-                {consistency.score >= 80 ? 'Excellent' : consistency.score >= 60 ? 'Good' : 'Needs Improvement'}
+                {consistency.score >= 80 ? 'EXCELLENT' : consistency.score >= 60 ? 'GOOD' : 'NEEDS IMPROVEMENT'}
               </span>
             </div>
           </div>
-          <div className="mt-8 grid grid-cols-2 gap-4 w-full">
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+
+          <div className="grid grid-cols-2 gap-6 w-full max-w-sm mb-10">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[32px] border border-slate-100 dark:border-slate-800">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Attendance</p>
-              <p className="text-xl font-black text-slate-900 dark:text-white">{consistency.attendance}%</p>
+              <p className="text-3xl font-black text-slate-900 dark:text-white">{consistency.attendance}%</p>
             </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-[32px] border border-slate-100 dark:border-slate-800">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Quiz Pass</p>
-              <p className="text-xl font-black text-slate-900 dark:text-white">{consistency.quizPassRate}%</p>
+              <p className="text-3xl font-black text-slate-900 dark:text-white">{consistency.quizPassRate}%</p>
             </div>
           </div>
-          <p className="mt-6 text-slate-500 dark:text-slate-400 font-medium text-sm">
+
+          <p className="text-slate-500 dark:text-slate-400 font-medium text-sm leading-relaxed max-w-xs">
             {consistency.score >= 80 
-              ? "Amit has been highly consistent in his learning journey this semester."
-              : "Amit is showing steady progress but can improve in some areas."}
+              ? `${childFirstName} has been highly consistent in their learning journey this semester.`
+              : `${childFirstName} is showing steady progress but can improve in some areas.`}
           </p>
         </div>
 
@@ -718,11 +896,11 @@ export const ParentDashboard: React.FC<{ consistency: ConsistencyData, activeTab
             <div className="grid grid-cols-2 gap-4">
               <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">IA 1</p>
-                <p className="text-3xl font-black text-slate-900">{childData.marks.ia1}<span className="text-sm text-slate-400">/20</span></p>
+                <p className="text-3xl font-black text-slate-900">{ia1}<span className="text-sm text-slate-400">/20</span></p>
               </div>
               <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">IA 2</p>
-                <p className="text-3xl font-black text-slate-900">{childData.marks.ia2}<span className="text-sm text-slate-400">/20</span></p>
+                <p className="text-3xl font-black text-slate-900">{ia2}<span className="text-sm text-slate-400">/20</span></p>
               </div>
             </div>
           </div>
@@ -734,11 +912,11 @@ export const ParentDashboard: React.FC<{ consistency: ConsistencyData, activeTab
             </div>
             <div className="flex items-center gap-6">
               <div className="w-20 h-20 bg-white/10 rounded-3xl flex items-center justify-center border border-white/10">
-                <span className="text-3xl font-black text-white">{childData.marks.sem4}</span>
+                <span className="text-3xl font-black text-white">{sem4}</span>
               </div>
               <div>
                 <p className="text-sm font-bold text-slate-400">Current Sem 4 Pointer</p>
-                <p className="text-xs text-emerald-400 font-black uppercase tracking-widest mt-1">Top 10% of Batch</p>
+                <p className="text-xs text-emerald-400 font-black uppercase tracking-widest mt-1">Roll No: {displayChild.rollNo}</p>
               </div>
             </div>
           </div>

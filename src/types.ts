@@ -19,6 +19,7 @@ export interface ProfileData {
   college?: string;
   course?: string;
   semester?: string;
+  rollNo?: string;
   // Teacher specific
   department?: string;
   designation?: string;

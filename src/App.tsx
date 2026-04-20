@@ -18,9 +18,12 @@ import { DoubtSolver, Message } from './components/DoubtSolver';
 import { ProfileSettings } from './components/ProfileSettings';
 import { AboutDevelopers } from './components/AboutDevelopers';
 import { SmartNotes } from './components/SmartNotes';
+import { VisionBoard } from './components/VisionBoard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { db, auth } from './firebase';
 import { ProfileData, ConsistencyData } from './types';
-import { collection, onSnapshot, query, orderBy, limit, doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from './lib/firestore-errors';
+import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -29,59 +32,15 @@ import {
   User
 } from 'firebase/auth';
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
-
-const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+const App: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
 };
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [role, setRole] = useState<UserRole | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -93,6 +52,7 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isVisionBoardOpen, setIsVisionBoardOpen] = useState(false);
 
   const [profileData, setProfileData] = useState<ProfileData>({
     uid: '',
@@ -113,12 +73,15 @@ const App: React.FC = () => {
   });
 
   const [consistencyData, setConsistencyData] = useState<ConsistencyData>({
-    score: 85,
-    attendance: 92,
-    quizPassRate: 78,
-    deadlinesMet: 95,
-    studyHours: 42
+    score: 0,
+    attendance: 0,
+    quizPassRate: 0,
+    deadlinesMet: 0,
+    studyHours: 0
   });
+
+  const [childAcademicRecord, setChildAcademicRecord] = useState<any>(null);
+  const [childConsistency, setChildConsistency] = useState<ConsistencyData | null>(null);
 
   useEffect(() => {
     if (darkMode) {
@@ -144,7 +107,7 @@ const App: React.FC = () => {
   };
 
   // Logic to calculate consistency score based on real data
-useEffect(() => {
+  useEffect(() => {
     if (!user || !isLoggedIn || !auth.currentUser) return;
 
     const deadlinesPath = `users/${auth.currentUser.uid}/deadlines`;
@@ -182,14 +145,80 @@ useEffect(() => {
       );
       
       setConsistencyData(prev => ({ ...prev, score: newScore }));
+      
+      // Persist to Firestore if logged in
+      if (user && role === 'student') {
+        updateProfile({ consistencyData: { ...consistencyData, score: newScore } } as any);
+      }
     };
 
     calculateScore();
   }, [consistencyData.attendance, consistencyData.quizPassRate, consistencyData.deadlinesMet, consistencyData.studyHours]);
 
+  // Handle Parent-Child Data Sync
+  useEffect(() => {
+    if (!isLoggedIn || role !== 'parent' || !profileData.childName) {
+      setChildAcademicRecord(null);
+      setChildConsistency(null);
+      return;
+    }
+
+    // 1. Find child's consistency data from their user document
+    const usersQuery = query(collection(db, 'users'), where('name', '==', profileData.childName), limit(1));
+    const unsubscribeChildUser = onSnapshot(usersQuery, (snapshot) => {
+      if (!snapshot.empty) {
+        const childDoc = snapshot.docs[0].data();
+        if (childDoc.consistencyData) {
+          setChildConsistency(childDoc.consistencyData);
+        }
+      }
+    });
+
+    // 2. Find child's academic record (IA marks) from teacher's students collection
+    const studentsQuery = query(collection(db, 'students'), where('name', '==', profileData.childName), limit(1));
+    const unsubscribeChildStudent = onSnapshot(studentsQuery, (snapshot) => {
+      if (!snapshot.empty) {
+        const studentData = snapshot.docs[0].data();
+        setChildAcademicRecord({
+          rollNo: studentData.rollNo,
+          sem4: studentData.sem4,
+          ia1: studentData.ia1,
+          ia2: studentData.ia2,
+          batch: studentData.batch || "INFTT-1",
+          college: studentData.college || "Institute of Engineering & Technology",
+          course: studentData.course || "B.E. Information Technology"
+        });
+      }
+    });
+
+    return () => {
+      unsubscribeChildUser();
+      unsubscribeChildStudent();
+    };
+  }, [isLoggedIn, role, profileData.childName]);
+
+  // Handle Student's Academic Record Sync (from Teacher's List)
+  const [studentAcademicRecord, setStudentAcademicRecord] = useState<any>(null);
+  useEffect(() => {
+    if (!isLoggedIn || role !== 'student' || !profileData.name) {
+      setStudentAcademicRecord(null);
+      return;
+    }
+
+    const q = query(collection(db, 'students'), where('name', '==', profileData.name), limit(1));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setStudentAcademicRecord(snapshot.docs[0].data());
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isLoggedIn, role, profileData.name]);
+
   // Shared State for Notices and Doubt Solver
   const [notices, setNotices] = useState<Notice[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [unreadCounts, setUnreadCounts] = useState<{ [key: string]: number }>({ notices: 0, doubts: 0 });
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
@@ -267,17 +296,49 @@ useEffect(() => {
     if (!isLoggedIn) {
       setNotices([]);
       setMessages([]);
+      setUnreadCounts({ notices: 0, doubts: 0 });
       return;
     }
 
-    // Listen for notices
+    // Listen for notices with specific filters
     const noticesQuery = query(collection(db, 'notices'), orderBy('date', 'desc'), limit(50));
     const unsubscribeNotices = onSnapshot(noticesQuery, (snapshot) => {
-      const newNotices = snapshot.docs.map(doc => ({
+      const allNotices = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Notice[];
-      setNotices(newNotices);
+      
+      // Filter notices based on role and target
+      const filtered = allNotices.filter(n => {
+        if (role === 'teacher') return true;
+        
+        // Defaults to 'all' if not specified (legacy notices)
+        const audience = n.targetAudience || 'all';
+        if (audience === 'all') return true;
+        
+        const targetRoll = n.targetRollNo ? String(n.targetRollNo).trim() : '';
+        const userRoll = profileData.rollNo ? String(profileData.rollNo).trim() : '';
+        
+        if (role === 'student') {
+          const studentRecRoll = studentAcademicRecord?.rollNo ? String(studentAcademicRecord.rollNo).trim() : '';
+          if (audience === 'students') return true;
+          if (audience === 'specific') {
+            return targetRoll !== '' && (targetRoll === userRoll || targetRoll === studentRecRoll);
+          }
+        }
+        
+        if (role === 'parent') {
+          const childRoll = childAcademicRecord?.rollNo ? String(childAcademicRecord.rollNo).trim() : '';
+          if (audience === 'parents') return true;
+          if (audience === 'specific') {
+            // Parent sees notice if it targets their own roll (if any) or their child's roll
+            return targetRoll !== '' && (targetRoll === userRoll || targetRoll === childRoll);
+          }
+        }
+        return false;
+      });
+      
+      setNotices(filtered);
     }, (error) => {
       console.error("Firestore Error (notices):", error);
     });
@@ -298,7 +359,48 @@ useEffect(() => {
       unsubscribeNotices();
       unsubscribeMessages();
     };
-  }, [isLoggedIn]);
+  }, [isLoggedIn, role, profileData.rollNo, childAcademicRecord?.rollNo]);
+
+  // Handle unread counts logic
+  useEffect(() => {
+    if (!isLoggedIn || !user) return;
+
+    // Reset unread counts when tab is active
+    if (activeTab === 'notices') {
+      if (notices.length > 0) {
+        localStorage.setItem(`lastNoticeId_${user.uid}`, notices[0].id);
+      }
+      setUnreadCounts(prev => ({ ...prev, notices: 0 }));
+    }
+    if (activeTab === 'doubts') {
+      if (messages.length > 0) {
+        localStorage.setItem(`lastMessageId_${user.uid}`, messages[messages.length - 1].id);
+      }
+      setUnreadCounts(prev => ({ ...prev, doubts: 0 }));
+    }
+
+    // Calculate unread notices (only when not on the notices tab)
+    if (notices.length > 0 && activeTab !== 'notices') {
+      const lastId = localStorage.getItem(`lastNoticeId_${user.uid}`);
+      if (lastId) {
+        const index = notices.findIndex(n => n.id === lastId);
+        setUnreadCounts(prev => ({ ...prev, notices: index === -1 ? notices.length : index }));
+      } else {
+        setUnreadCounts(prev => ({ ...prev, notices: notices.length }));
+      }
+    }
+
+    // Calculate unread doubts (only when not on the doubts tab)
+    if (messages.length > 0 && activeTab !== 'doubts') {
+      const lastId = localStorage.getItem(`lastMessageId_${user.uid}`);
+      if (lastId) {
+        const index = messages.findLastIndex(m => m.id === lastId);
+        setUnreadCounts(prev => ({ ...prev, doubts: index === -1 ? messages.length : messages.length - 1 - index }));
+      } else {
+        setUnreadCounts(prev => ({ ...prev, doubts: messages.length }));
+      }
+    }
+  }, [isLoggedIn, activeTab, notices, messages, user?.uid]);
 
   const handleLogin = async (selectedRole: UserRole) => {
     try {
@@ -307,16 +409,6 @@ useEffect(() => {
       if (!loggedInUser) {
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth, provider);
-        const user = result.user;
-        const docRef = doc(db, "users", user.uid);
-        const docSnap = await getDoc(docRef);
-      if (!docSnap.exists()) {
-      await setDoc(docRef, {
-        uid: user.uid,
-        name: user.displayName || "User",
-        email: user.email,
-      });
-    }
         loggedInUser = result.user;
       }
       
@@ -353,24 +445,22 @@ useEffect(() => {
       } else {
         const userData = userDoc.data() as ProfileData;
         
-// Check if the user is trying to log in with a different role
+        // Check if the user is trying to log in with a different role
         const isTestUser = loggedInUser.email === 'amitjadhav4306@gmail.com';
         
-if (userData.role !== selectedRole) {
-  const isTestUser = loggedInUser.email === 'amitjadhav4306@gmail.com';
-  
-  if (isTestUser) {
-    // Test user can switch roles freely
-    const updatedProfile: ProfileData = {
-      ...userData,
-      role: selectedRole,
-      updatedAt: serverTimestamp()
-    };
-    await setDoc(doc(db, 'users', loggedInUser.uid), updatedProfile);
-    setProfileData(updatedProfile);
-    setRole(selectedRole);
-  } else {
-    const confirmSwitch = window.confirm(
+        if (userData.role !== selectedRole) {
+          if (isTestUser) {
+            // Test user can switch roles freely without reset
+            const updatedProfile: ProfileData = {
+              ...userData,
+              role: selectedRole,
+              updatedAt: serverTimestamp()
+            };
+            await setDoc(doc(db, 'users', loggedInUser.uid), updatedProfile);
+            setProfileData(updatedProfile);
+            setRole(selectedRole);
+          } else {
+            const confirmSwitch = window.confirm(
               `You already have a ${userData.role} account. Would you like to switch to ${selectedRole}? This will reset your profile data.`
             );
             
@@ -512,7 +602,7 @@ if (userData.role !== selectedRole) {
   const renderContent = () => {
     if (role === 'student') {
       switch (activeTab) {
-        case 'dashboard': return <StudentDashboard onNavigate={setActiveTab} notices={notices} searchQuery={searchQuery} />;
+        case 'dashboard': return <StudentDashboard onNavigate={setActiveTab} notices={notices} searchQuery={searchQuery} academicRecord={studentAcademicRecord} />;
         case 'video': return (
           <div className="p-8">
             <VideoFocusPlayer />
@@ -521,25 +611,26 @@ if (userData.role !== selectedRole) {
         case 'curriculum': return <Curriculum searchQuery={searchQuery} />;
         case 'scheduler': return <SmartScheduler searchQuery={searchQuery} />;
         case 'notices': return <NoticeBoard notices={notices} setNotices={setNotices} isReadOnly={true} searchQuery={searchQuery} />;
-        case 'doubts': return <DoubtSolver messages={messages} setMessages={setMessages} userRole="student" searchQuery={searchQuery} />;
+        case 'doubts': return <DoubtSolver messages={messages} setMessages={setMessages} userRole="student" userName={profileData.name} searchQuery={searchQuery} />;
         case 'notes': return <SmartNotes />;
         case 'about-devs': return <AboutDevelopers />;
         case 'settings': return <ProfileSettings profile={profileData} onUpdate={updateProfile} onResetAccount={handleResetAccount} />;
-        default: return <StudentDashboard onNavigate={setActiveTab} notices={notices} searchQuery={searchQuery} />;
+        default: return <StudentDashboard onNavigate={setActiveTab} notices={notices} searchQuery={searchQuery} academicRecord={studentAcademicRecord} />;
       }
     } else if (role === 'teacher') {
       switch (activeTab) {
-        case 'my-class': return <TeacherDashboard searchQuery={searchQuery} />;
-        case 'notices': return <NoticeBoard notices={notices} setNotices={setNotices} isReadOnly={false} searchQuery={searchQuery} />;
-        case 'doubts': return <DoubtSolver messages={messages} setMessages={setMessages} userRole="teacher" searchQuery={searchQuery} />;
+        case 'my-class': return <TeacherDashboard teacherName={profileData.name} searchQuery={searchQuery} notices={notices} />;
+        case 'notices': return <NoticeBoard notices={notices} setNotices={setNotices} isReadOnly={false} searchQuery={searchQuery} authorName={profileData.name} />;
+        case 'doubts': return <DoubtSolver messages={messages} setMessages={setMessages} userRole="teacher" userName={profileData.name} searchQuery={searchQuery} />;
         case 'settings': return <ProfileSettings profile={profileData} onUpdate={updateProfile} onResetAccount={handleResetAccount} />;
-        default: return <TeacherDashboard searchQuery={searchQuery} />;
+        default: return <TeacherDashboard teacherName={profileData.name} searchQuery={searchQuery} />;
       }
     } else if (role === 'parent') {
       switch (activeTab) {
-        case 'performance': return <ParentDashboard consistency={consistencyData} searchQuery={searchQuery} />;
+        case 'performance': return <ParentDashboard childData={childAcademicRecord} searchQuery={searchQuery} />;
+        case 'notices': return <NoticeBoard notices={notices} setNotices={setNotices} isReadOnly={true} searchQuery={searchQuery} />;
         case 'settings': return <ProfileSettings profile={profileData} onUpdate={updateProfile} onResetAccount={handleResetAccount} />;
-        default: return <ParentDashboard consistency={consistencyData} activeTab={activeTab} searchQuery={searchQuery} />;
+        default: return <ParentDashboard childData={childAcademicRecord} activeTab={activeTab} searchQuery={searchQuery} />;
       }
     }
     return null;
@@ -568,6 +659,7 @@ if (userData.role !== selectedRole) {
     if (role === 'parent') {
       const titles: Record<string, string> = {
         performance: 'Student Performance',
+        notices: 'Notice Board',
         'college-info': 'College & Course Info',
         blogs: 'Parenting & Mental Health Blogs',
         contact: 'Contact Faculty'
@@ -589,6 +681,7 @@ if (userData.role !== selectedRole) {
         setIsMobileOpen={setIsMobileMenuOpen}
         darkMode={darkMode}
         toggleDarkMode={toggleDarkMode}
+        unreadCounts={unreadCounts}
       />
       
       <main className={cn(
@@ -602,6 +695,14 @@ if (userData.role !== selectedRole) {
           profile={profileData}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
+          notices={notices}
+          unreadNotices={unreadCounts.notices}
+          onClearNotices={() => {
+            if (notices.length > 0 && user) {
+              setUnreadCounts(prev => ({ ...prev, notices: 0 }));
+              localStorage.setItem(`lastNoticeId_${user.uid}`, notices[0].id);
+            }
+          }}
         />
         
         <div className="flex-1 relative">
@@ -624,16 +725,32 @@ if (userData.role !== selectedRole) {
         </footer>
       </main>
 
-      {/* Global AI Floating Action Button */}
+      {/* Role-Specific Action Hub (Global Floating Button) */}
       <motion.button
-        whileHover={{ scale: 1.1 }}
+        whileHover={{ scale: 1.1, y: -5 }}
         whileTap={{ scale: 0.9 }}
+        onClick={() => {
+          if (role === 'parent') setActiveTab('contact');
+          else if (role === 'student') setIsVisionBoardOpen(true);
+          else if (role === 'teacher') setActiveTab('notices');
+        }}
         className="fixed bottom-8 right-8 w-16 h-16 bg-slate-900 text-white rounded-full flex items-center justify-center shadow-2xl z-50 group overflow-hidden"
       >
         <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
         <MessageSquare size={24} className="relative z-10" />
         <div className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 rounded-full border-2 border-slate-900 animate-pulse" />
+        
+        {/* Tooltip hint */}
+        <div className="absolute bottom-full right-0 mb-4 px-4 py-2 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 transition-all whitespace-nowrap">
+          {role === 'student' ? 'Daily Vision & Goals' : role === 'parent' ? 'Contact Faculty' : 'Quick Broadcast'}
+        </div>
       </motion.button>
+
+      {/* Student Vision Board Modal */}
+      <VisionBoard 
+        isOpen={isVisionBoardOpen} 
+        onClose={() => setIsVisionBoardOpen(false)} 
+      />
     </div>
   );
 };

@@ -85,9 +85,15 @@ interface StudentDashboardProps {
   onNavigate: (tab: string) => void;
   notices: any[];
   searchQuery?: string;
+   academicRecord?: any;
 }
 
-export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onNavigate, notices, searchQuery = '' }) => {
+export const StudentDashboard: React.FC<StudentDashboardProps> = ({ 
+  onNavigate, 
+  notices, 
+  searchQuery = '', 
+  academicRecord // Add this here too
+}) => {
   const [deadlines, setDeadlines] = useState<any[]>([]);
   const [showAddDeadline, setShowAddDeadline] = useState(false);
   const auth = getAuth();
@@ -254,8 +260,8 @@ useEffect(() => {
               </div>
             </div>
             
-<div className="h-[300px] w-full min-h-[300px] relative">
-  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={300}>
+            <div className="h-[300px] w-full min-h-[300px] relative">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={300}>
                 <AreaChart data={performanceData}>
                   <defs>
                     <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
@@ -300,7 +306,7 @@ useEffect(() => {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <motion.div 
+              {/* <motion.div 
                 whileHover={{ y: -5 }}
                 className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 p-6 shadow-sm hover:shadow-xl transition-all group cursor-pointer"
                 onClick={() => onNavigate('video')}
@@ -318,9 +324,9 @@ useEffect(() => {
                     <Play size={16} fill="currentColor" />
                   </div>
                 </div>
-              </motion.div>
+              </motion.div> */}
 
-              <motion.div 
+              {/* <motion.div 
                 whileHover={{ y: -5 }}
                 className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 p-6 shadow-sm hover:shadow-xl transition-all group cursor-pointer"
                 onClick={() => onNavigate('scheduler')}
@@ -338,7 +344,7 @@ useEffect(() => {
                     <Clock size={16} />
                   </div>
                 </div>
-              </motion.div>
+              </motion.div> */}
             </div>
           </section>
 
@@ -375,7 +381,7 @@ useEffect(() => {
         {/* Sidebar Area */}
         <div className="xl:col-span-4 space-y-10">
           {/* Goals Card */}
-          <section className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl shadow-slate-900/20 relative overflow-hidden group">
+          {/* <section className="bg-slate-900 rounded-[40px] p-8 text-white shadow-2xl shadow-slate-900/20 relative overflow-hidden group">
             <div className="absolute -bottom-10 -right-10 opacity-10 group-hover:scale-110 transition-transform duration-700">
               <Target size={240} />
             </div>
@@ -407,7 +413,7 @@ useEffect(() => {
                 CONTINUE LEARNING
               </button>
             </div>
-          </section>
+          </section> */}
 
           {/* Removed Subject Mastery as per request */}
 

@@ -14,6 +14,7 @@
         "college": { "type": "string", "description": "College or institution name (Student/Teacher)" },
         "course": { "type": "string", "description": "Course or branch name (Student)" },
         "semester": { "type": "string", "description": "Current semester (Student)" },
+        "rollNo": { "type": "string", "description": "University Roll Number (Student)" },
         "department": { "type": "string", "description": "Department name (Teacher)" },
         "designation": { "type": "string", "description": "Professional designation (Teacher)" },
         "experience": { "type": "string", "description": "Years of experience (Teacher)" },
@@ -51,6 +52,20 @@
         "ia2": { "type": "number", "description": "IA2 marks" }
       },
       "required": ["rollNo", "name", "sem4", "ia1", "ia2"]
+          },
+    "QuizResult": {
+      "title": "Quiz Result",
+      "description": "A record of a student's performance on a specific quiz.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique result ID" },
+        "subject": { "type": "string", "description": "Subject name" },
+        "score": { "type": "number", "description": "Score achieved" },
+        "total": { "type": "number", "description": "Maximum possible score" },
+        "date": { "type": "string", "format": "date-time", "description": "Date of the quiz" },
+        "type": { "type": "string", "enum": ["quiz", "ia1", "ia2", "assignment"], "description": "Type of assessment" }
+      },
+      "required": ["subject", "score", "total", "date", "type"]
     }
   },
   "firestore": {
@@ -61,6 +76,10 @@
     "/users/{uid}/deadlines/{deadlineId}": {
       "schema": "Deadline",
       "description": "Sub-collection of deadlines for a specific student."
+    },
+        "/users/{uid}/quiz_results/{resultId}": {
+      "schema": "QuizResult",
+      "description": "Sub-collection of quiz results for a specific student."
     },
     "/users/{uid}/schedules/{scheduleId}": {
       "schema": "object",

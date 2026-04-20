@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { UserRole, NavItem, ProfileData } from '../types';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface SidebarProps {
   role: UserRole;
@@ -37,6 +37,7 @@ interface SidebarProps {
   setIsMobileOpen: (open: boolean) => void;
   darkMode: boolean;
   toggleDarkMode: () => void;
+  unreadCounts?: { [key: string]: number };
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -49,7 +50,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   setIsMobileOpen,
   darkMode,
-  toggleDarkMode
+  toggleDarkMode,
+  unreadCounts = {}
 }) => {
   const studentNav: NavItem[] = [
     { label: 'Dashboard', icon: LayoutDashboard, id: 'dashboard' },
@@ -65,20 +67,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const teacherNav: NavItem[] = [
     { label: 'My Class', icon: Users, id: 'my-class' },
-    { label: 'Notice Board', icon: Bell, id: 'notices', badge: '3' },
-    { label: 'Doubt Solver', icon: MessageSquare, id: 'doubts', badge: '12' },
+    { label: 'Notice Board', icon: Bell, id: 'notices' },
+    { label: 'Doubt Solver', icon: MessageSquare, id: 'doubts' },
     { label: 'Settings', icon: Settings, id: 'settings' },
   ];
 
   const parentNav: NavItem[] = [
     { label: 'Performance', icon: BarChart3, id: 'performance' },
+    { label: 'Notice Board', icon: Bell, id: 'notices' },
     { label: 'College Info', icon: BookOpen, id: 'college-info' },
     { label: 'Parenting Blogs', icon: FileText, id: 'blogs' },
     { label: 'Contact Faculty', icon: MessageSquare, id: 'contact' },
     { label: 'Settings', icon: Settings, id: 'settings' },
   ];
 
-  const navItems = role === 'student' ? studentNav : role === 'teacher' ? teacherNav : parentNav;
+  let rawNavItems = role === 'student' ? studentNav : role === 'teacher' ? teacherNav : parentNav;
+  
+  const navItems = rawNavItems.map(item => ({
+    ...item,
+    badge: unreadCounts[item.id] > 0 ? unreadCounts[item.id].toString() : undefined
+  }));
 
   return (
     <>
@@ -226,63 +234,147 @@ interface HeaderProps {
   profile: ProfileData;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  notices: any[];
+  unreadNotices?: number;
+  onClearNotices?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, profile, searchQuery, setSearchQuery }) => (
-  <header className="h-20 sm:h-24 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 md:px-10 sticky top-0 z-40 transition-all duration-300">
-    <div className="flex items-center gap-4">
-      <button 
-        onClick={onMenuClick}
-        className="p-2 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl lg:hidden transition-colors"
-      >
-        <Menu size={24} />
-      </button>
-      <div className="flex flex-col">
-        <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-black text-slate-900 dark:text-white tracking-tight leading-none truncate max-w-[150px] sm:max-w-none">{title}</h1>
-        <p className="text-[8px] sm:text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1 sm:mt-2">Learning Ecosystem • 2026</p>
-      </div>
-    </div>
-    
-    <div className="flex items-center gap-4 sm:gap-6 md:gap-10">
-      <div className="relative hidden lg:block group">
-        <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors">
-          <Search size={20} />
-        </div>
-        <input 
-          type="text" 
-          placeholder="Search for courses, topics, or notes..." 
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-14 pr-16 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:bg-white dark:focus:bg-slate-900 focus:border-indigo-100 dark:focus:border-indigo-900 focus:ring-8 focus:ring-indigo-50/50 dark:focus:ring-indigo-900/20 rounded-[24px] text-sm w-[400px] transition-all outline-none font-semibold text-slate-600 dark:text-slate-300 placeholder:text-slate-400"
-        />
-        <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 opacity-40 group-focus-within:opacity-100 transition-opacity">
-          <kbd className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-black text-slate-500 shadow-sm">⌘</kbd>
-          <kbd className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-black text-slate-500 shadow-sm">K</kbd>
+export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, profile, searchQuery, setSearchQuery, notices, unreadNotices = 0, onClearNotices }) => {
+  const [showNotifications, setShowNotifications] = React.useState(false);
+
+  const handleToggleNotifications = () => {
+    const newState = !showNotifications;
+    setShowNotifications(newState);
+    if (newState && onClearNotices) {
+      onClearNotices();
+    }
+  };
+  
+  return (
+    <header className="h-20 sm:h-24 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 md:px-10 sticky top-0 z-40 transition-all duration-300">
+      <div className="flex items-center gap-4">
+        <button 
+          onClick={onMenuClick}
+          className="p-2 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl lg:hidden transition-colors"
+        >
+          <Menu size={24} />
+        </button>
+        <div className="flex flex-col">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-black text-slate-900 dark:text-white tracking-tight leading-none truncate max-w-[150px] sm:max-w-none">{title}</h1>
+          <p className="text-[8px] sm:text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1 sm:mt-2">Learning Ecosystem • 2026</p>
         </div>
       </div>
       
-      <div className="flex items-center gap-6">
-        <button className="w-14 h-14 flex items-center justify-center text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-indigo-600 rounded-2xl relative transition-all duration-300 group">
-          <Bell size={24} className="group-hover:rotate-12 transition-transform" />
-          <span className="absolute top-4 right-4 w-3 h-3 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse shadow-sm"></span>
-        </button>
-        
-        <div className="h-10 w-[1px] bg-slate-200 dark:bg-slate-800 mx-2"></div>
-        
-        <div className="flex items-center gap-2 sm:gap-4 group cursor-pointer p-1 sm:p-1.5 pr-2 sm:pr-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-all duration-300">
-          <div className="text-right hidden md:block">
-            <p className="text-xs sm:text-sm font-black text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors">{profile.name}</p>
-            <p className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">{profile.role}</p>
+      <div className="flex items-center gap-4 sm:gap-6 md:gap-10">
+        <div className="relative hidden lg:block group">
+          <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors">
+            <Search size={20} />
           </div>
-          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl sm:rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs sm:text-sm border-2 border-white dark:border-slate-800 shadow-md group-hover:scale-105 transition-transform duration-300 overflow-hidden">
-            {profile.avatar ? (
-              <img src={profile.avatar} alt="Avatar" className="w-full h-full object-cover" />
-            ) : (
-              profile.name.split(' ').map(n => n[0]).join('')
-            )}
+          <input 
+            type="text" 
+            placeholder="Search for courses, topics, or notes..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-14 pr-16 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:bg-white dark:focus:bg-slate-900 focus:border-indigo-100 dark:focus:border-indigo-900 focus:ring-8 focus:ring-indigo-50/50 dark:focus:ring-indigo-900/20 rounded-[24px] text-sm w-[400px] transition-all outline-none font-semibold text-slate-600 dark:text-slate-300 placeholder:text-slate-400"
+          />
+          <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 opacity-40 group-focus-within:opacity-100 transition-opacity">
+            <kbd className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-black text-slate-500 shadow-sm">⌘</kbd>
+            <kbd className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-black text-slate-500 shadow-sm">K</kbd>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-6">
+          <div className="relative">
+            <button 
+              onClick={handleToggleNotifications}
+              className={cn(
+                "w-14 h-14 flex items-center justify-center text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-indigo-600 rounded-2xl relative transition-all duration-300 group",
+                showNotifications && "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600"
+              )}
+            >
+              <Bell size={24} className="group-hover:rotate-12 transition-transform" />
+              {unreadNotices > 0 && (
+                <span className="absolute top-4 right-4 w-3 h-3 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse shadow-sm"></span>
+              )}
+            </button>
+
+            <AnimatePresence>
+              {showNotifications && (
+                <>
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setShowNotifications(false)}
+                    className="fixed inset-0 z-[-1]"
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-4 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[32px] shadow-2xl z-50 overflow-hidden"
+                  >
+                    <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <h3 className="font-display font-black text-slate-900 dark:text-white uppercase tracking-wider text-xs">Recent Notices & Events</h3>
+                      <span className="px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-full">
+                        {notices.length} New
+                      </span>
+                    </div>
+                    <div className="max-h-[400px] overflow-y-auto p-4 space-y-2">
+                      {notices.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <p className="text-sm text-slate-400 font-medium">No new notifications</p>
+                        </div>
+                      ) : (
+                        notices.slice(0, 5).map((notice, i) => (
+                          <div key={notice.id || i} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-2xl transition-all cursor-pointer group">
+                            <div className="flex gap-4">
+                              <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 group-hover:scale-110 transition-transform">
+                                <Bell size={18} />
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1">{notice.title}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">{notice.content}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                                  {notice.author} • {notice.date?.toDate ? notice.date.toDate().toLocaleDateString() : 'Just now'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
+                      <button 
+                        className="w-full py-3 text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest hover:underline"
+                        onClick={() => setShowNotifications(false)}
+                      >
+                        View All Notices
+                      </button>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+          
+          <div className="h-10 w-[1px] bg-slate-200 dark:bg-slate-800 mx-2"></div>
+          
+          <div className="flex items-center gap-2 sm:gap-4 group cursor-pointer p-1 sm:p-1.5 pr-2 sm:pr-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-all duration-300">
+            <div className="text-right hidden md:block">
+              <p className="text-xs sm:text-sm font-black text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors">{profile.name}</p>
+              <p className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">{profile.role}</p>
+            </div>
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl sm:rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs sm:text-sm border-2 border-white dark:border-slate-800 shadow-md group-hover:scale-105 transition-transform duration-300 overflow-hidden">
+              {profile.avatar ? (
+                <img src={profile.avatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                profile.name.split(' ').map(n => n[0]).join('')
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </header>
-);
+    </header>
+  );
+};

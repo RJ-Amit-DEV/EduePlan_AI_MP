@@ -55,7 +55,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-   
+
     // ===============================================================
     // Helper Functions
     // ===============================================================
@@ -70,25 +70,31 @@ service cloud.firestore {
 
     function isSuperUser() {
       return isAuthenticated() && 
-             request.auth.token.email == "amitjadhav4306@gmail.com";
+             (request.auth.token.email == "amitjadhav4306@gmail.com");
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function isAdmin() {
       return isSuperUser() || (
         isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        getUserData().role == 'admin'
       );
     }
 
     function isTeacher() {
-      return isAuthenticated() && 
+      return isSuperUser() || (
+        isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+        getUserData().role == 'teacher'
+      );
     }
 
-    function uidUnchanged() {
-      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    function isVerified() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
     }
 
     function uidNotModified() {
@@ -99,10 +105,6 @@ service cloud.firestore {
       return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
-    function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
-    }
-
     // ===============================================================
     // Domain Validators
     // ===============================================================
@@ -110,83 +112,88 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
              data.uid is string && data.uid.size() > 0 &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.name is string && data.name.size() > 0 &&
              isValidEmail(data.email) &&
              data.role in ['student', 'teacher', 'parent', 'admin'] &&
-             (!('avatar' in data) || (data.avatar is string && data.avatar.size() < 1000)) &&
-             (!('about' in data) || (data.about is string && data.about.size() < 2000)) &&
-             (!('updatedAt' in data) || data.updatedAt is timestamp || isValidDateString(data.updatedAt));
+             (!('avatar' in data) || data.avatar is string) &&
+             (!('about' in data) || data.about is string) &&
+             (!('consistencyData' in data) || data.consistencyData is map);
+    }
+
+    function isValidQuizResult(data) {
+      return data.keys().hasAll(['subject', 'score', 'total', 'date', 'type']) &&
+             data.subject is string && data.subject.size() > 0 &&
+             data.score is number && data.score >= 0 &&
+             data.total is number && data.total > 0 &&
+             data.date is string &&
+             data.type is string;
     }
 
     function isValidDeadline(data) {
       return data.keys().hasAll(['title', 'date', 'time', 'color', 'completed']) &&
-             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
-             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
-             data.time is string && data.time.matches("^\\d{2}:\\d{2}$") &&
-             data.color is string && data.color.size() < 50 &&
+             data.title is string && data.title.size() > 0 &&
+             data.date is string &&
+             data.time is string &&
+             data.color is string &&
              data.completed is bool;
-    }
-
-    function isValidStudent(data) {
-      return data.keys().hasAll(['rollNo', 'name', 'sem4', 'ia1', 'ia2']) &&
-             data.rollNo is string && data.rollNo.size() > 0 &&
-             data.name is string && data.name.size() > 0 &&
-             data.sem4 is string &&
-             data.ia1 is number && data.ia1 >= 0 && data.ia1 <= 20 &&
-             data.ia2 is number && data.ia2 >= 0 && data.ia2 <= 20;
     }
 
     // ===============================================================
     // Match Rules
     // ===============================================================
 
-    // Default deny
+    // GLOBAL SUPERUSER BYPASS
+    match /{document=**} {
+      allow read, write: if isSuperUser();
+    }
+
+    // Default deny for others
     match /{path=**} {
       allow read, write: if false;
     }
 
     // User Profiles
     match /users/{userId} {
-      // Users can only read their own profile, SuperUser can read all
-      allow read: if isOwner(userId) || isSuperUser() || isAdmin();
+      // Allow reading profile: owner, admin, or search for child linking
+      allow read: if isOwner(userId) || isAdmin() || isTeacher() || 
+                    (isAuthenticated() && resource.data.keys().hasAll(['name', 'role']));
       
-      // Create: User must be owner (or SuperUser), data must be valid for non-SuperUsers
-      allow create: if (isOwner(userId) || isSuperUser()) && 
-                      (isSuperUser() || (isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin())));
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
       
-      // Update: User must be owner (or SuperUser), data must be valid for non-SuperUsers
-      allow update: if (isOwner(userId) || isSuperUser()) && 
-                      (isSuperUser() || (isValidUser(request.resource.data) && uidNotModified() && (request.resource.data.role == resource.data.role || isAdmin())));
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && uidNotModified();
       
-      allow delete: if isOwner(userId) || isSuperUser() || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
 
       // Sub-collections
       match /deadlines/{deadlineId} {
-        allow read: if isOwner(userId) || isAdmin();
+        allow read: if isOwner(userId) || isAdmin() || isTeacher();
         allow create, update: if isOwner(userId) && isValidDeadline(request.resource.data);
         allow delete: if isOwner(userId) || isAdmin();
       }
 
-      match /schedules/{scheduleId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow create, update, delete: if isOwner(userId) || isAdmin();
+      match /quiz_results/{resultId} {
+        allow read: if isOwner(userId) || isAdmin() || isTeacher();
+        allow create: if isOwner(userId) && isValidQuizResult(request.resource.data);
+        allow update, delete: if isAdmin() || isTeacher();
       }
 
-      match /notes/{noteId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow create, update, delete: if isOwner(userId) || isAdmin();
-      }
-
-      match /scheduler_messages/{messageId} {
-        allow read: if isOwner(userId) || isAdmin();
+      match /{subTab}/{docId} {
+        allow read: if isOwner(userId) || isAdmin() || isTeacher();
         allow create, update, delete: if isOwner(userId) || isAdmin();
       }
     }
 
-    // Students Collection
+    // Students Collection (Teacher's Records)
     match /students/{studentId} {
       // Teachers and Admins can do everything
-      allow read, write: if isAdmin() || isTeacher();
+      // Parents and Students can find/read their own record
+      allow read: if isAdmin() || isTeacher() || 
+                    (isAuthenticated() && (
+                      resource.data.name == request.auth.token.name ||
+                      (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.childName == resource.data.name)
+                    ));
+      allow write: if isAdmin() || isTeacher();
     }
 
     // Global Notice Board
